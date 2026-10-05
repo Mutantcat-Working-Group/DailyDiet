@@ -77,7 +77,9 @@ jobs:
 
   release:
     name: Signed release APK
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -102,12 +104,18 @@ jobs:
       - name: Resolve release version
         id: version
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^dailyDiet\.versionName=//p' gradle.properties | head -n1 | tr -d '\r')"
+          fi
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]{8}$ ]]; then
-            echo "::error::Release tag must match vMAJOR.MINOR.yyyyMMdd, for example v1.0.20261005."
+            echo "::error::Version must match MAJOR.MINOR.yyyyMMdd, for example 1.0.20261005 (got '$version')."
             exit 1
           fi
           echo "name=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "code=${version##*.}0" >> "$GITHUB_OUTPUT"
 
       - name: Check signing secrets
@@ -173,20 +181,40 @@ jobs:
             dist/checksums-sha1.txt
           if-no-files-found: error
 
+      - name: Ensure version tag exists
+        if: steps.signing.outputs.configured == 'true' && github.ref_type != 'tag'
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag $RELEASE_TAG already exists on the remote."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+            echo "Created and pushed tag $RELEASE_TAG."
+          fi
+
       - name: Publish GitHub release
         if: steps.signing.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_VERSION: ${{ steps.version.outputs.name }}
-          TAG_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" \
-              dist/DailyDiet-*.apk dist/checksums-md5.txt dist/checksums-sha1.txt \
-              --clobber
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+              gh release upload "$RELEASE_TAG" \
+                dist/DailyDiet-*.apk dist/checksums-md5.txt dist/checksums-sha1.txt \
+                --clobber
+            else
+              echo "::notice::Release $RELEASE_TAG already exists, nothing to publish. Bump dailyDiet.versionName to publish a new release."
+            fi
           else
-            gh release create "$TAG_NAME" \
+            gh release create "$RELEASE_TAG" \
               dist/DailyDiet-*.apk dist/checksums-md5.txt dist/checksums-sha1.txt \
               --title "DailyDiet $APP_VERSION" \
               --generate-notes
