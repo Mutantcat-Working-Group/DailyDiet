@@ -1,71 +1,173 @@
-# DailyDiet
+<div align=center>
+<img src="icon.png" style="width:100px;" width="100"/>
+<h2>DailyDiet</h2>
+</div>
 
-Android calorie and diet tracker focused on a local-first food database, daily calorie
-budget, exercise burn, and a transparent calorie deficit calculation.
+简体中文
 
-## Current scope
+### 一、产品概述
 
-- Mifflin-St Jeor BMR and TDEE calculation with deficit safety bounds.
-- Energy and mass unit conversion (kcal, kJ, cal, g, kg, oz).
-- Preloaded local food cache, with custom foods as fallback.
-- Food and exercise logging.
-- Pluggable vision model settings for photo-based food estimation.
-- GitHub Actions build, unit-test, and APK artifact workflow.
+- 本地优先的安卓饮食热量记录 App：记录每天吃了什么、动了多少，算清每日热量预算与热量缺口。
+- 三条线放在同一屏：吃进来多少、运动消耗多少、距离减脂目标还差多少，不用在多个页面之间来回切换。
+- 内置 65 条常见中式食物数据，覆盖主食、肉类、蛋奶、蔬菜、水果、豆制品、水产、饮料、零食、坚果、调味 11 个分类，离线可搜可用。
+- 没有收录的食物可以手动添加，也可以配置一个带视觉能力的模型，用 AI 拍照估算食物种类、重量和热量。
+- 纯本地存储，无账号、无广告、无云同步；唯一会联网的功能是 AI 拍照识别，且直连你自己配置的模型服务。
+- **发行方** 由异猫工作群（mutantcat.org）发行，GitHub: https://github.com/Mutantcat-Working-Group
 
-## Build
+核心价值：
 
-Local Android SDK and JDK 21 are required. The CI workflow is the canonical build
-entry point.
+- 看得懂：把 BMR、TDEE、净摄入、目标缺口、今日实际缺口全部摊开显示，不藏计算过程。
+- 记得快：本地食物库搜索、常用份量、AI 拍照、自定义食物，几种记录方式都保留。
+- 算得稳：热量缺口带安全上限，摄入带最低保护，周期过短或缺口过大时主动提示。
+- 留得住：所有记录存在手机本地，没有账号也能完整使用，隐私面更小。
 
-```bash
-./gradlew testDebugUnitTest assembleDebug
-```
+### 二、功能说明
 
-## Versioning
+#### 目标设定与每日预算
 
-The version format is `MAJOR.MINOR.yyyyMMdd`, for example `1.0.20261005`.
-It is defined once in `gradle.properties`:
+- 录入性别、年龄、身高、当前体重、目标体重、目标周期和日常活动水平。
+- 使用 Mifflin-St Jeor 公式计算基础代谢 BMR，再乘以活动系数得到每日总消耗 TDEE。
+- 按「1 公斤脂肪约 7700 千卡」计算目标缺口，并给出每日可摄入热量。
+- 内置安全边界：单日缺口不超过 TDEE 的 25% 且不超过 1000 千卡；每日摄入不低于女性 1200 千卡、男性 1500 千卡；目标周期过短、缺口过大、目标体重不低于当前体重时给出提示。
+- 目标页实时预览 BMR、TDEE、目标缺口和每日可摄入，保存后立即生效。
 
-```properties
-dailyDiet.versionName=1.0.20261005
-```
+#### 今日面板
 
-`versionCode` is derived as `yyyyMMdd` plus a one-digit same-day revision, so
-`1.0.20261005` becomes `202610050`. For a second release on the same day,
-override it explicitly:
+- 顶部直接显示「剩余可摄入」，一眼看清今天还能吃多少，超出预算时变红提示。
+- 汇总已摄入、运动消耗、每日预算。
+- 单独展示热量缺口：基础代谢 BMR、每日总消耗 TDEE、净摄入、今日实际缺口。
+- 统计蛋白质、脂肪、碳水三项宏量营养。
+- 按早餐、午餐、晚餐、加餐分组展示饮食记录，运动记录单列，支持逐条删除。
 
-```properties
-dailyDiet.versionCode=202610051
-```
+#### 饮食记录
 
-Release tags must use the same format with a `v` prefix, for example
-`v1.0.20261005`. The tag value overrides `versionName` during the release build,
-so the APK and the tag always match.
+- 本地食物库搜索，支持名称和别名匹配，例如搜索「馒头」或「mt」。
+- 每条食物记录每 100 克热量、蛋白质、脂肪、碳水和常用份量说明。
+- 记录时可在「份」「克」「千克」「盎司」之间切换，自动换算重量和热量。
+- 没有收录的食物可直接添加自定义食物，填写名称、每 100 克热量和本次重量即可入库。
+- 支持把记录归入早餐、午餐、晚餐或加餐。
 
-## Signing for CI
+#### AI 拍照识别
 
-Add these repository secrets to publish a signed release APK on a `v*` tag:
+- 支持拍照和从相册选择图片两种方式。
+- 使用 OpenAI 兼容的 `chat/completions` 接口，自行填写 Base URL、API Key 和模型名。
+- 模型需要支持图片输入（视觉模型），例如 `gpt-4o-mini`、`qwen-vl-plus` 等。
+- 识别结果会列出每种食物的名称、估算重量、每 100 克热量、置信度和备注。
+- 记录前可勾选需要的条目，并手动修改重量和热量，确认后再写入当天记录。
+- AI 只能估算份量，结果仅供参考，请在记录前核对。
 
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEYSTORE_PASSWORD`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
+#### 运动记录
 
-## Build artifacts
+- 内置 17 种运动预设，覆盖有氧、力量、球类和日常活动，例如走路、慢跑、骑行、跳绳、游泳、瑜伽、力量训练、HIIT、羽毛球、篮球、足球、爬楼梯、家务等。
+- 按 `消耗热量 = MET × 体重 × 小时数` 估算运动消耗，自动使用当前体重。
+- 记录运动时长后计入当天消耗，并同步影响「剩余可摄入」和「今日实际缺口」。
 
-Every push and pull request uploads an Actions artifact containing:
+#### 单位切换
 
-- `DailyDiet-<version>-debug.apk`
-- `checksums-md5.txt`
-- `checksums-sha1.txt`
+- 热量单位支持千卡（kcal）、千焦（kJ）、卡（cal），切换后全局显示同步换算。
+- 重量单位支持克（g）、千克（kg）、盎司（oz）。
+- 数据内部统一按千卡和克存储，切换单位不会改变已有记录。
 
-Pushing a tag such as `v1.0.20261005`, with the signing secrets configured, builds
-the signed release APK and publishes a GitHub release with:
+#### 数据与隐私
 
-- `DailyDiet-1.0.20261005.apk`
-- `checksums-md5.txt`
-- `checksums-sha1.txt`
+- 饮食、运动、体重和设置全部保存在手机本地，使用 Room 数据库和 DataStore。
+- 无账号体系、无云同步、无广告，应用关闭 `allowBackup`，不参与系统备份。
+- 除用户主动触发的 AI 拍照识别外，应用不会向任何服务器发送数据。
 
-Each checksum file uses the standard `<hash>  <filename>` format and is verified
-by the workflow with `md5sum -c` / `sha1sum -c` before upload.
+### 三、安装与下载
 
+1. 打开 [Releases](https://github.com/Mutantcat-Working-Group/DailyDiet/releases/latest)，下载最新版本 APK：
+    ```
+    DailyDiet-<版本号>.apk
+    ```
+2. 同一 Release 附带两个校验文件，下载后可按需校验 APK 完整性：
+    ```
+    checksums-md5.txt
+    checksums-sha1.txt
+    ```
+    Windows：
+    ```
+    certutil -hashfile DailyDiet-<版本号>.apk MD5
+    certutil -hashfile DailyDiet-<版本号>.apk SHA1
+    ```
+    Linux / macOS：
+    ```
+    md5sum -c checksums-md5.txt
+    sha1sum -c checksums-sha1.txt
+    ```
+3. 系统要求：Android 8.0（API 26）及以上。
+4. 首次安装需要在系统设置中允许「安装未知来源应用」。
+
+### 四、快速上手
+
+1. 首次启动填写目标：性别、年龄、身高、当前体重、目标体重、目标周期和日常活动水平，保存后进入首页。
+2. 打开「今天」查看剩余可摄入、每日预算和热量缺口。
+3. 点「记录饮食」，搜索食物并选择份量和餐次；没有收录时添加自定义食物，或点右上角相机用 AI 拍照估算。
+4. 点「记录运动」，选择运动类型并填写时长，消耗会自动计入当天。
+5. 进入「我的」可以修改目标、记录体重、切换热量和重量单位，以及配置 AI 识别。
+6. 配置 AI 识别：填入 Base URL、API Key 和模型名，保存后即可在饮食页使用拍照或相册识别。
+
+### 五、常见问题
+
+**AI 识别提示未配置或请求失败？**
+
+请在「我的 - AI 识别设置」中确认 Base URL、API Key 和模型名三项都已填写。Base URL 可以带 `/chat/completions`，也可以只写到 `/v1`，应用会自动补全。模型必须是支持图片输入的视觉模型，纯文本模型无法识别照片。
+
+**为什么算出来的热量和别的 App 不一样？**
+
+BMR、TDEE 和运动消耗都是基于公式和活动系数的估算，个体误差通常在 10% 到 20%。建议连续记录一段时间，结合体重变化再校准目标。体重变化后可以在「我的」里重新修改目标。
+
+**为什么摄入热量不能设得很低？**
+
+应用对每日摄入设置了安全下限，女性不低于 1200 千卡，男性不低于 1500 千卡，同时限制单日缺口上限。过低的热量目标不适合长期执行，应用会主动提示。
+
+**我的数据会上传吗？**
+
+不会。饮食、运动、体重和设置都保存在本机。只有在你主动使用 AI 拍照识别时，照片才会发送到你配置的模型服务。
+
+**内置食物库有多少条？**
+
+当前内置 65 条常见中式食物，覆盖 11 个分类。没有收录的食物可以手动添加，也可以随时通过 AI 拍照估算。
+
+**支持哪些安卓版本？**
+
+Android 8.0（API 26）及以上。
+
+### 六、开发进度
+
+- [X] 目标设定与 BMR / TDEE 计算
+- [X] 每日热量预算与热量缺口
+- [X] 本地食物库与搜索
+- [X] 饮食记录、餐次分类、自定义食物
+- [X] 运动记录与 MET 消耗估算
+- [X] 今日面板与宏量营养统计
+- [X] 体重记录
+- [X] 热量与重量单位切换
+- [X] AI 拍照识别（OpenAI 兼容视觉模型）
+- [X] GitHub Actions 自动测试、打包与发版
+- [ ] 条码扫描
+- [ ] 数据导入导出
+- [ ] 体重趋势图与周报
+- [ ] Health Connect 步数与运动同步
+
+### 七、开发者构建
+
+- 技术栈：Kotlin + Jetpack Compose + Material 3，Room 本地数据库，DataStore 设置存储，OkHttp 网络请求。
+- 包名 `com.mutantcat.dailydiet`，minSdk 26，targetSdk 35。
+- 本项目的构建与测试以 GitHub Actions 为唯一验收入口，本地无需安装 Android SDK。
+- 版本格式为 `MAJOR.MINOR.yyyyMMdd`，例如 `1.0.20261006`，唯一定义在 `gradle.properties` 的 `dailyDiet.versionName`。
+- `versionCode` 默认由日期加 1 位同日修订号推导，同一天多次发布时可在 `dailyDiet.versionCode` 显式覆盖。
+- 推送到 `main` 后，CI 通过即自动创建 `v<版本号>` 标签并发布 Release；Release 已存在时会跳过并提示修改版本号。
+- 签名发版需要在仓库 Secrets 中配置 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。
+- 每次构建产物包含 `DailyDiet-<版本号>.apk`、`checksums-md5.txt`、`checksums-sha1.txt`，校验文件在发布前会由 CI 自行验证。
+
+### 许可与发行
+
+- 本仓库当前未附带开源许可证文件，正式对外分发前请补充明确的许可协议。
+- 本项目由异猫工作群（mutantcat.org）发行，GitHub: https://github.com/Mutantcat-Working-Group
+
+---
+
+## 致谢
+
+感谢所有为本项目提供食物营养数据参考、算法公式和开源工具的上游项目与社区。
