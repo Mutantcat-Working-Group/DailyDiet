@@ -50,7 +50,7 @@ fun TodayScreen(
     onDeleteExerciseLog: (ExerciseLogEntity) -> Unit,
 ) {
     val display: (Double) -> String = { kcal ->
-        "${UnitFormatter.format(energyUnit.fromKcal(kcal))} ${energyUnit.symbol}"
+        UnitFormatter.energy(kcal, energyUnit)
     }
     val progress = if (summary.target.dailyIntake > 0.0) {
         (summary.netIntakeKcal / summary.target.dailyIntake).coerceIn(0.0, 1.0).toFloat()
@@ -178,7 +178,7 @@ fun TodayScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(log.name, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                text = "${log.minutes} 分钟 · ${log.kcal.toInt()} kcal",
+                                text = "${log.minutes} 分钟 · ${display(log.kcal)}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

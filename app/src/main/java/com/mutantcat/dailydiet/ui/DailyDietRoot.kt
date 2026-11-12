@@ -167,6 +167,7 @@ fun DailyDietRoot(container: AppContainer) {
             composable(Routes.EXERCISE) {
                 ExerciseScreen(
                     weightKg = profile.currentWeightKg,
+                    energyUnit = energyUnit,
                     exerciseLogs = exerciseLogs,
                     onAdd = { preset, minutes ->
                         viewModel.addExercise(
@@ -199,6 +200,7 @@ fun DailyDietRoot(container: AppContainer) {
             composable(Routes.GOAL) {
                 GoalScreen(
                     initialProfile = profile,
+                    energyUnit = energyUnit,
                     showBack = configured == true,
                     onBack = { navController.popBackStack() },
                     onSave = { newProfile ->

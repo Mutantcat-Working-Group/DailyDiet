@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mutantcat.dailydiet.core.units.EnergyUnit
+import com.mutantcat.dailydiet.core.units.UnitFormatter
 import com.mutantcat.dailydiet.domain.calculator.CalorieTargetCalculator
 import com.mutantcat.dailydiet.domain.model.ActivityLevel
 import com.mutantcat.dailydiet.domain.model.Sex
@@ -42,6 +44,7 @@ import com.mutantcat.dailydiet.ui.label
 @Composable
 fun GoalScreen(
     initialProfile: UserProfile,
+    energyUnit: EnergyUnit,
     onSave: (UserProfile) -> Unit,
     showBack: Boolean,
     onBack: () -> Unit,
@@ -58,16 +61,29 @@ fun GoalScreen(
     var targetDaysText by remember { mutableStateOf(initialProfile.targetDays.toString()) }
     var activityLevel by remember { mutableStateOf(initialProfile.activityLevel) }
 
+    val age = ageText.toIntOrNull() ?: 0
+    val heightCm = heightText.toDoubleOrNull() ?: 0.0
+    val currentWeightKg = currentWeightText.toDoubleOrNull() ?: 0.0
+    val targetWeightKg = targetWeightText.toDoubleOrNull() ?: 0.0
+    val targetDays = targetDaysText.toIntOrNull() ?: 0
+
     val previewProfile = UserProfile(
         sex = sex,
-        age = ageText.toIntOrNull() ?: 0,
-        heightCm = heightText.toDoubleOrNull() ?: 0.0,
-        currentWeightKg = currentWeightText.toDoubleOrNull() ?: 0.0,
-        targetWeightKg = targetWeightText.toDoubleOrNull() ?: 0.0,
-        targetDays = targetDaysText.toIntOrNull() ?: 0,
+        age = age,
+        heightCm = heightCm,
+        currentWeightKg = currentWeightKg,
+        targetWeightKg = targetWeightKg,
+        targetDays = targetDays,
         activityLevel = activityLevel,
     )
     val target = CalorieTargetCalculator.calculate(previewProfile)
+
+    // 输入不合法时禁止保存，避免把全 0 的 profile 写进 DataStore 后只能靠计算器兜 INVALID_INPUT。
+    val inputsValid = age in MIN_AGE..MAX_AGE &&
+        heightCm in MIN_HEIGHT_CM..MAX_HEIGHT_CM &&
+        currentWeightKg in MIN_WEIGHT_KG..MAX_WEIGHT_KG &&
+        targetWeightKg in MIN_WEIGHT_KG..MAX_WEIGHT_KG &&
+        targetDays >= MIN_TARGET_DAYS
 
     Scaffold(
         topBar = {
@@ -168,20 +184,29 @@ fun GoalScreen(
             SectionCard(title = "每日预算预览") {
                 MetricRow(
                     label = "基础代谢 BMR",
-                    value = "${target.bmr.toInt()} kcal",
+                    value = UnitFormatter.energy(target.bmr, energyUnit),
                 )
                 MetricRow(
                     label = "每日总消耗 TDEE",
-                    value = "${target.tdee.toInt()} kcal",
+                    value = UnitFormatter.energy(target.tdee, energyUnit),
                 )
                 MetricRow(
                     label = "目标热量缺口",
-                    value = "${target.deficit.toInt()} kcal",
+                    value = UnitFormatter.energy(target.deficit, energyUnit),
                 )
                 MetricRow(
                     label = "每日可摄入",
-                    value = "${target.dailyIntake.toInt()} kcal",
+                    value = UnitFormatter.energy(target.dailyIntake, energyUnit),
                     emphasize = true,
+                )
+            }
+
+            if (!inputsValid) {
+                Text(
+                    text = "请输入有效数值：年龄 $MIN_AGE-$MAX_AGE 岁，身高 $MIN_HEIGHT_CM-${MAX_HEIGHT_CM.toInt()} cm，" +
+                        "体重 $MIN_WEIGHT_KG-${MAX_WEIGHT_KG.toInt()} kg，目标周期至少 $MIN_TARGET_DAYS 天。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
 
@@ -206,6 +231,7 @@ fun GoalScreen(
             Button(
                 onClick = { onSave(previewProfile) },
                 modifier = Modifier.fillMaxWidth(),
+                enabled = inputsValid,
             ) {
                 Icon(Icons.Filled.Check, contentDescription = null)
                 Text(
@@ -220,4 +246,13 @@ fun GoalScreen(
 
 private fun Double.toTrimmedString(): String =
     if (this % 1.0 == 0.0) toInt().toString() else toString()
+
+// 与 CalorieTargetCalculator 的兜底逻辑对应的合理输入区间。
+private const val MIN_AGE = 10
+private const val MAX_AGE = 100
+private const val MIN_HEIGHT_CM = 80.0
+private const val MAX_HEIGHT_CM = 250.0
+private const val MIN_WEIGHT_KG = 25.0
+private const val MAX_WEIGHT_KG = 300.0
+private const val MIN_TARGET_DAYS = 7
 

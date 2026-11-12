@@ -27,5 +27,17 @@ enum class MassUnit(val label: String, val symbol: String, val gramsPerUnit: Dou
 object UnitFormatter {
     fun format(value: Double, decimals: Int = 0): String =
         String.format(Locale.US, "%.${decimals}f", value)
+
+    /** 按当前热量单位格式化，例如 "1234 kcal"。数据内部一律按 kcal 存储。 */
+    fun energy(kcal: Double, unit: EnergyUnit, decimals: Int = 0): String =
+        "${format(unit.fromKcal(kcal), decimals)} ${unit.symbol}"
+
+    /** 按当前重量单位格式化，例如 "150 g"。数据内部一律按克存储。 */
+    fun mass(grams: Double, unit: MassUnit, decimals: Int = 0): String =
+        "${format(unit.fromGrams(grams), decimals)} ${unit.symbol}"
+
+    /** 把以当前单位显示的重量解析回克，输入非法时返回 null。 */
+    fun parseMass(text: String, unit: MassUnit): Double? =
+        text.trim().toDoubleOrNull()?.let { unit.toGrams(it) }
 }
 

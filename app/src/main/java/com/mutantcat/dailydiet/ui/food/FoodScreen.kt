@@ -1,6 +1,9 @@
 package com.mutantcat.dailydiet.ui.food
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -51,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mutantcat.dailydiet.core.units.EnergyUnit
 import com.mutantcat.dailydiet.core.units.MassUnit
@@ -63,7 +67,9 @@ import com.mutantcat.dailydiet.ui.components.MetricRow
 import com.mutantcat.dailydiet.ui.components.NumberField
 import com.mutantcat.dailydiet.ui.components.SectionCard
 import com.mutantcat.dailydiet.ui.label
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 
 private enum class PortionUnitMode(val label: String) {
     PORTION("份"),
@@ -127,7 +133,7 @@ fun FoodScreen(
     ) { success ->
         if (success) {
             pendingCameraUri?.let { uri ->
-                readBytes(context, uri)?.let(handleImage)
+                readCompressedImageBytes(context, uri)?.let(handleImage)
             }
         }
     }
@@ -135,7 +141,7 @@ fun FoodScreen(
     val pickImage = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        uri?.let { readBytes(context, it)?.let(handleImage) }
+        uri?.let { readCompressedImageBytes(context, it)?.let(handleImage) }
     }
 
     val launchCamera: () -> Unit = {
@@ -265,8 +271,16 @@ fun FoodScreen(
         CustomFoodDialog(
             initialMeal = pendingMeal ?: MealType.LUNCH,
             onDismiss = { showCustomFoodDialog = false },
-            onSubmit = { name, kcalPer100g, grams, meal ->
-                viewModel.addCustomFood(name, kcalPer100g, grams, meal)
+            onSubmit = { name, kcalPer100g, grams, protein, fat, carb, meal ->
+                viewModel.addCustomFood(
+                    name = name,
+                    kcalPer100g = kcalPer100g,
+                    grams = grams,
+                    mealType = meal,
+                    proteinPer100g = protein,
+                    fatPer100g = fat,
+                    carbPer100g = carb,
+                )
                 showCustomFoodDialog = false
                 viewModel.consumePendingMeal()
                 onSaved()
@@ -323,10 +337,11 @@ private fun PortionSheet(
     initialMeal: MealType,
     onConfirm: (grams: Double, meal: MealType) -> Unit,
 ) {
+    // 默认数量按「单位模式的换算值」填，保证初次打开时 grams 恰好等于 defaultPortionGrams。
     var amountText by remember(food.id) {
         mutableStateOf(
             when (defaultMassUnit) {
-                MassUnit.GRAM -> food.defaultPortionGrams.toInt().toString()
+                MassUnit.GRAM -> "1"
                 MassUnit.KILOGRAM ->
                     (food.defaultPortionGrams / 1000.0).toTrimmedString()
                 MassUnit.OUNCE ->
@@ -354,6 +369,21 @@ private fun PortionSheet(
     }
     val kcal = food.kcalPer100g * grams / 100.0
 
+    // 切换单位时把当前重量换算到新单位，否则 "1 份" 切成 "克" 会变成 1 克。
+    val switchUnitMode: (PortionUnitMode) -> Unit = { next ->
+        if (next != unitMode) {
+            val currentGrams = grams
+            amountText = when (next) {
+                PortionUnitMode.PORTION ->
+                    (currentGrams / food.defaultPortionGrams).toTrimmedString()
+                PortionUnitMode.GRAM -> currentGrams.toTrimmedString()
+                PortionUnitMode.KILOGRAM -> (currentGrams / 1000.0).toTrimmedString()
+                PortionUnitMode.OUNCE -> (currentGrams / 28.349523125).toTrimmedString()
+            }
+            unitMode = next
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -364,7 +394,7 @@ private fun PortionSheet(
     ) {
         Text(food.name, style = MaterialTheme.typography.titleLarge)
         Text(
-            text = "每 100 克 ${food.kcalPer100g.toInt()} kcal",
+            text = "每 100 克 ${UnitFormatter.energy(food.kcalPer100g, energyUnit)}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -384,7 +414,7 @@ private fun PortionSheet(
             PortionUnitMode.entries.forEach { mode ->
                 FilterChip(
                     selected = unitMode == mode,
-                    onClick = { unitMode = mode },
+                    onClick = { switchUnitMode(mode) },
                     label = {
                         Text(
                             if (mode == PortionUnitMode.PORTION) {
@@ -507,12 +537,11 @@ private fun AiEstimateSheet(
                 )
             }
             Text(
-                text = "该项热量：" + UnitFormatter.format(
-                    energyUnit.fromKcal(
-                        (editable.kcalText.toDoubleOrNull() ?: 0.0) *
-                            (editable.gramsText.toDoubleOrNull() ?: 0.0) / 100.0,
-                    ),
-                ) + " ${energyUnit.symbol}",
+                text = "该项热量：" + UnitFormatter.energy(
+                    (editable.kcalText.toDoubleOrNull() ?: 0.0) *
+                        (editable.gramsText.toDoubleOrNull() ?: 0.0) / 100.0,
+                    energyUnit,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -551,16 +580,25 @@ private fun CustomFoodDialog(
         name: String,
         kcalPer100g: Double,
         grams: Double,
+        proteinPer100g: Double,
+        fatPer100g: Double,
+        carbPer100g: Double,
         meal: MealType,
     ) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var kcalText by remember { mutableStateOf("") }
     var gramsText by remember { mutableStateOf("100") }
+    var proteinText by remember { mutableStateOf("") }
+    var fatText by remember { mutableStateOf("") }
+    var carbText by remember { mutableStateOf("") }
     var meal by remember(initialMeal) { mutableStateOf(initialMeal) }
 
     val kcal = kcalText.toDoubleOrNull() ?: 0.0
     val grams = gramsText.toDoubleOrNull() ?: 0.0
+    val protein = proteinText.toDoubleOrNull() ?: 0.0
+    val fat = fatText.toDoubleOrNull() ?: 0.0
+    val carb = carbText.toDoubleOrNull() ?: 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -586,6 +624,34 @@ private fun CustomFoodDialog(
                     label = "本次食用重量",
                     suffix = "g",
                 )
+                Text(
+                    text = "宏量营养（选填，每 100 克）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    NumberField(
+                        value = proteinText,
+                        onValueChange = { proteinText = it },
+                        label = "蛋白质",
+                        modifier = Modifier.weight(1f),
+                        suffix = "g",
+                    )
+                    NumberField(
+                        value = fatText,
+                        onValueChange = { fatText = it },
+                        label = "脂肪",
+                        modifier = Modifier.weight(1f),
+                        suffix = "g",
+                    )
+                    NumberField(
+                        value = carbText,
+                        onValueChange = { carbText = it },
+                        label = "碳水",
+                        modifier = Modifier.weight(1f),
+                        suffix = "g",
+                    )
+                }
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -602,7 +668,7 @@ private fun CustomFoodDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onSubmit(name.trim(), kcal, grams, meal) },
+                onClick = { onSubmit(name.trim(), kcal, grams, protein, fat, carb, meal) },
                 enabled = name.isNotBlank() && kcal > 0.0 && grams > 0.0,
             ) {
                 Text("记录")
@@ -616,9 +682,75 @@ private fun CustomFoodDialog(
     )
 }
 
-private fun readBytes(context: Context, uri: Uri): ByteArray? = runCatching {
-    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+/** 单边最大像素。相机原图直接 base64 上传容易顶到模型限制，也拖慢请求。 */
+private const val MAX_IMAGE_EDGE_PX = 1280
+
+private const val JPEG_QUALITY = 85
+
+/**
+ * 读取图片并压缩：
+ * 1. 按 [MAX_IMAGE_EDGE_PX] 等比降采样（两轮 inSampleSize，避免一次性解码超大图 OOM）；
+ * 2. 按 EXIF 方向旋正，否则竖拍照片传给模型会 sideways；
+ * 3. 重新编码为 JPEG 并把原始 EXIF 元数据写回（含方向信息已被消费掉，故直接省略）。
+ */
+private fun readCompressedImageBytes(context: Context, uri: Uri): ByteArray? = runCatching {
+    val resolver = context.contentResolver
+
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    val opts = BitmapFactory.Options().apply {
+        inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_IMAGE_EDGE_PX)
+    }
+    val decoded = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+        ?: return null
+
+    val orientation = resolver.openInputStream(uri)?.use { readExifOrientation(it) }
+        ?: ExifInterface.ORIENTATION_NORMAL
+    val rotated = decoded.applyExifOrientation(orientation)
+
+    ByteArrayOutputStream().use { out ->
+        rotated.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+        if (rotated !== decoded) rotated.recycle()
+        decoded.recycle()
+        out.toByteArray()
+    }
 }.getOrNull()
+
+private fun calculateInSampleSize(width: Int, height: Int, maxEdge: Int): Int {
+    var sample = 1
+    while (width / (sample * 2) >= maxEdge || height / (sample * 2) >= maxEdge) {
+        sample *= 2
+    }
+    return sample
+}
+
+private fun readExifOrientation(input: InputStream): Int {
+    val exif = ExifInterface(input)
+    return exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+}
+
+private fun Bitmap.applyExifOrientation(orientation: Int): Bitmap {
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.postRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.postRotate(270f)
+            matrix.postScale(-1f, 1f)
+        }
+        else -> return this
+    }
+    return Bitmap.createBitmap(this, 0, 0, width, height, matrix, true)
+}
 
 private fun Double.toTrimmedString(): String =
     if (this % 1.0 == 0.0) toInt().toString() else toString()

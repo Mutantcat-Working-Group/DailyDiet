@@ -80,16 +80,19 @@ fun ProfileScreen(
             SectionCard(title = "目标") {
                 MetricRow("性别 / 年龄", "${profile.sex.label()} / ${profile.age} 岁")
                 MetricRow("身高", "${profile.heightCm.toInt()} cm")
-                MetricRow("当前体重", "${profile.currentWeightKg} kg")
-                MetricRow("目标体重", "${profile.targetWeightKg} kg")
+                MetricRow("当前体重", formatBodyWeight(profile.currentWeightKg))
+                MetricRow("目标体重", formatBodyWeight(profile.targetWeightKg))
                 MetricRow("目标周期", "${profile.targetDays} 天")
                 MetricRow("活动水平", profile.activityLevel.label())
                 MetricRow(
                     label = "每日可摄入",
-                    value = "${calorieTarget.dailyIntake.toInt()} kcal",
+                    value = UnitFormatter.energy(calorieTarget.dailyIntake, energyUnit),
                     emphasize = true,
                 )
-                MetricRow("每日目标缺口", "${calorieTarget.deficit.toInt()} kcal")
+                MetricRow(
+                    label = "每日目标缺口",
+                    value = UnitFormatter.energy(calorieTarget.deficit, energyUnit),
+                )
                 OutlinedButton(
                     onClick = onEditGoal,
                     modifier = Modifier.fillMaxWidth(),
@@ -110,7 +113,7 @@ fun ProfileScreen(
                     )
                 } else {
                     Text(
-                        text = "${latest.weightKg} kg",
+                        text = formatBodyWeight(latest.weightKg),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                     )
@@ -143,7 +146,7 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "${log.weightKg} kg",
+                            text = formatBodyWeight(log.weightKg),
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
@@ -186,7 +189,8 @@ fun ProfileScreen(
                     }
                 }
                 Text(
-                    text = "1 千卡 = 4.184 千焦 = 1000 卡路里；1 千克 = 1000 克；1 盎司 = 28.35 克",
+                    text = "1 千卡 = 4.184 千焦 = 1000 卡路里；1 千克 = 1000 克；1 盎司 = 28.35 克。" +
+                        "切换只影响食物份量和宏量营养的显示，不会修改已保存的记录；体重固定以 kg 显示。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -239,8 +243,9 @@ private fun WeightDialog(
     onDismiss: () -> Unit,
     onConfirm: (Double) -> Unit,
 ) {
+    // 体重固定用 kg：克和盎司对体重没有实际意义，重量单位设置只作用于食物份量和宏量营养。
     var weightText by remember { mutableStateOf(initialWeight.toString()) }
-    val weight = weightText.toDoubleOrNull() ?: 0.0
+    val weightKg = weightText.toDoubleOrNull() ?: 0.0
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -255,8 +260,8 @@ private fun WeightDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(weight) },
-                enabled = weight > 0.0,
+                onClick = { onConfirm(weightKg) },
+                enabled = weightKg > 0.0,
             ) {
                 Text("保存")
             }
@@ -270,4 +275,7 @@ private fun WeightDialog(
 }
 
 private val DATE_FORMAT = SimpleDateFormat("MM-dd", Locale.CHINA)
+
+/** 体重固定以 kg 显示，不随重量单位设置变化。 */
+private fun formatBodyWeight(kg: Double): String = "${UnitFormatter.format(kg, 1)} kg"
 

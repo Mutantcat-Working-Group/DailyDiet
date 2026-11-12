@@ -20,26 +20,50 @@ import com.mutantcat.dailydiet.domain.model.CalorieTarget
 import com.mutantcat.dailydiet.domain.model.MealType
 import com.mutantcat.dailydiet.domain.model.TodaySummary
 import com.mutantcat.dailydiet.domain.model.UserProfile
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class DailyDietViewModel(
     private val container: AppContainer,
 ) : ViewModel() {
 
-    private val dayStart: Long = LocalDate.now()
-        .atStartOfDay(ZoneId.systemDefault())
-        .toInstant()
-        .toEpochMilli()
-    private val dayEnd: Long = dayStart + DAY_MILLIS - 1
+    /** 当前展示的是哪一天（本地时区）。跨零点或夏令时切换时由 [dayWindow] 重新计算。 */
+    private val currentDay = MutableStateFlow(LocalDate.now())
+
+    private val dayWindow: StateFlow<DayWindow> = currentDay
+        .map(::windowOf)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = windowOf(currentDay.value),
+        )
+
+    init {
+        // 每分钟检查一次「今天」是否变了（跨零点或夏令时切换），变了就重新订阅新的一天。
+        viewModelScope.launch {
+            while (true) {
+                delay(DAY_TICK_MS)
+                val today = LocalDate.now()
+                if (today != currentDay.value) {
+                    currentDay.value = today
+                }
+            }
+        }
+    }
 
     val profile: StateFlow<UserProfile> = container.profileRepository.profileFlow.stateIn(
         scope = viewModelScope,
@@ -71,15 +95,17 @@ class DailyDietViewModel(
         initialValue = AiSettings(),
     )
 
-    val todayFoodLogs: StateFlow<List<FoodLogEntity>> =
-        container.logRepository.foodLogs(dayStart, dayEnd).stateIn(
+    val todayFoodLogs: StateFlow<List<FoodLogEntity>> = dayWindow
+        .flatMapLatest { window -> container.logRepository.foodLogs(window.start, window.end) }
+        .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList(),
         )
 
-    val todayExerciseLogs: StateFlow<List<ExerciseLogEntity>> =
-        container.logRepository.exerciseLogs(dayStart, dayEnd).stateIn(
+    val todayExerciseLogs: StateFlow<List<ExerciseLogEntity>> = dayWindow
+        .flatMapLatest { window -> container.logRepository.exerciseLogs(window.start, window.end) }
+        .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList(),
@@ -129,6 +155,7 @@ class DailyDietViewModel(
 
     init {
         viewModelScope.launch {
+            // 冷启动时 Application 可能还没播种完；这里再等一次互斥锁，然后立刻加载列表。
             container.initialize()
             _foods.value = container.foodRepository.search("")
         }
@@ -146,8 +173,13 @@ class DailyDietViewModel(
         _pendingMeal.value = null
     }
 
-    fun searchFoods(query: String) {
-        viewModelScope.launch {
+    private var searchJob: Job? = null
+
+    /** 输入防抖：打字过程中取消上一次查询，停顿 250ms 后才真正查库。 */
+    fun searchFoods(query: String, debounceMs: Long = SEARCH_DEBOUNCE_MS) {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            if (debounceMs > 0) delay(debounceMs)
             _foods.value = container.foodRepository.search(query)
         }
     }
@@ -191,11 +223,17 @@ class DailyDietViewModel(
         kcalPer100g: Double,
         grams: Double,
         mealType: MealType,
+        proteinPer100g: Double = 0.0,
+        fatPer100g: Double = 0.0,
+        carbPer100g: Double = 0.0,
     ) {
         viewModelScope.launch {
             val id = container.foodRepository.addCustomFood(
                 name = name,
                 kcalPer100g = kcalPer100g,
+                proteinPer100g = proteinPer100g,
+                fatPer100g = fatPer100g,
+                carbPer100g = carbPer100g,
             )
             val food = container.foodRepository.findById(id)
             if (food != null) {
@@ -221,7 +259,7 @@ class DailyDietViewModel(
     ) {
         viewModelScope.launch {
             container.logRepository.addEstimatedFood(
-                name = item.name,
+                item = item,
                 grams = grams,
                 kcalPer100g = kcalPer100g,
                 mealType = mealType,
@@ -262,12 +300,18 @@ class DailyDietViewModel(
     fun addWeight(weightKg: Double) {
         viewModelScope.launch {
             container.logRepository.addWeight(weightKg, System.currentTimeMillis())
+            container.profileRepository.updateCurrentWeight(weightKg)
             _message.value = "体重已记录"
         }
     }
 
     fun deleteWeightLog(log: WeightLogEntity) {
-        viewModelScope.launch { container.logRepository.deleteWeightLog(log) }
+        viewModelScope.launch {
+            container.logRepository.deleteWeightLog(log)
+            // 删掉最新一条记录后，回退当前体重到剩下的最新值；没有记录时保持不变。
+            val latest = container.logRepository.weightLogs().first().firstOrNull()
+            latest?.let { container.profileRepository.updateCurrentWeight(it.weightKg) }
+        }
     }
 
     fun estimateFood(
@@ -281,8 +325,19 @@ class DailyDietViewModel(
         }
     }
 
+    private data class DayWindow(val start: Long, val end: Long)
+
     companion object {
-        private const val DAY_MILLIS = 24L * 60L * 60L * 1000L
+        private const val DAY_TICK_MS = 60L * 1000L
+        private const val SEARCH_DEBOUNCE_MS = 250L
+
+        /** 按本地时区的「当天零点 ~ 次日零点」计算区间，跨夏令时也不会错一秒。 */
+        private fun windowOf(day: LocalDate): DayWindow {
+            val zone = ZoneId.systemDefault()
+            val start = day.atStartOfDay(zone).toInstant().toEpochMilli()
+            val end = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1
+            return DayWindow(start = start, end = end)
+        }
 
         fun factory(container: AppContainer): ViewModelProvider.Factory = viewModelFactory {
             initializer {

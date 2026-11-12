@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用唯一的联网功能是用户自己配置的 AI 识别端点，可能是本机或内网里的自建服务
+  （例如 http://192.168.1.10:11434/v1），因此允许明文 HTTP。
+  用户数据始终只写到本机，这里不放行任何第三方域名，也不引入广告/统计 SDK。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -39,10 +39,12 @@ fun SettingsScreen(
     onSave: (AiSettings) -> Unit,
     onBack: () -> Unit,
 ) {
-    var enabled by remember { mutableStateOf(settings.enabled) }
-    var baseUrl by remember { mutableStateOf(settings.baseUrl) }
-    var apiKey by remember { mutableStateOf(settings.apiKey) }
-    var model by remember { mutableStateOf(settings.model) }
+    // 以 settings 为 key：DataStore 异步读取完成后会用已保存的值重新初始化输入框，
+    // 否则从「我的」进入设置页时会一直显示默认值。
+    var enabled by remember(settings) { mutableStateOf(settings.enabled) }
+    var baseUrl by remember(settings) { mutableStateOf(settings.baseUrl) }
+    var apiKey by remember(settings) { mutableStateOf(settings.apiKey) }
+    var model by remember(settings) { mutableStateOf(settings.model) }
 
     Scaffold(
         topBar = {
@@ -116,8 +118,8 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
-                    text = "API Key 目前保存在本机 DataStore 中。正式发布前建议改为 EncryptedSharedPreferences " +
-                        "或 Android Keystore 加密存储。",
+                    text = "API Key 使用 Android Keystore 中的 AES/GCM 密钥加密后保存在本机，" +
+                        "不会上传，也无法随备份迁移到其他设备。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

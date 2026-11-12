@@ -59,6 +59,12 @@ class ProfileRepository(
         dataStore.edit { it[Keys.ENERGY_UNIT] = unit.name }
     }
 
+    /** 记录体重后同步当前体重，保证 BMR / TDEE / 运动消耗都用最新体重计算。 */
+    suspend fun updateCurrentWeight(weightKg: Double) {
+        if (weightKg <= 0.0) return
+        dataStore.edit { it[Keys.CURRENT_WEIGHT_KG] = weightKg }
+    }
+
     suspend fun saveMassUnit(unit: MassUnit) {
         dataStore.edit { it[Keys.MASS_UNIT] = unit.name }
     }

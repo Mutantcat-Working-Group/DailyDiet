@@ -120,6 +120,9 @@ class OpenAiCompatibleVisionEstimator(
                             kcalPer100g = kcalPer100g,
                             confidence = item.optDouble("confidence", 0.5).coerceIn(0.0, 1.0),
                             note = item.optString("note", ""),
+                            proteinPer100g = item.optNullablePositive("proteinPer100g"),
+                            fatPer100g = item.optNullablePositive("fatPer100g"),
+                            carbPer100g = item.optNullablePositive("carbPer100g"),
                         ),
                     )
                 }
@@ -132,12 +135,22 @@ class OpenAiCompatibleVisionEstimator(
         }
     }
 
+    /** 读取正数可选字段；缺失、null 或 <= 0 一律视为「模型没给」。 */
+    private fun JSONObject.optNullablePositive(key: String): Double? {
+        if (!has(key) || isNull(key)) return null
+        return optDouble(key, 0.0).takeIf { it > 0.0 }
+    }
+
     private fun chatCompletionsUrl(baseUrl: String): String {
         val trimmed = baseUrl.trim().trimEnd('/')
-        return if (trimmed.endsWith("/chat/completions")) {
-            trimmed
+        val normalized = if (trimmed.contains("://")) trimmed else "https://$trimmed"
+        if (!normalized.startsWith("http://") && !normalized.startsWith("https://")) {
+            throw IllegalArgumentException("Base URL 只支持 http:// 或 https://，当前为 $trimmed")
+        }
+        return if (normalized.endsWith("/chat/completions")) {
+            normalized
         } else {
-            "$trimmed/chat/completions"
+            "$normalized/chat/completions"
         }
     }
 
@@ -170,9 +183,10 @@ class OpenAiCompatibleVisionEstimator(
 1. 重量单位为克，只计算可食用部分，不包含餐具和包装。
 2. 热量单位为千卡（kcal）。
 3. 无法判断热量时把 kcalPer100g 设为 null。
-4. 只输出 JSON，不要输出解释文字。
+4. 尽量同时给出 proteinPer100g、fatPer100g、carbPer100g（单位克，每 100 克可食部分）；无法判断时设为 null。
+5. 只输出 JSON，不要输出解释文字。
 输出格式：
-{"items":[{"name":"馒头","estimatedGrams":120,"kcalPer100g":223,"confidence":0.7,"note":"约 1 个中等大小"}]}
+{"items":[{"name":"馒头","estimatedGrams":120,"kcalPer100g":223,"proteinPer100g":7.0,"fatPer100g":1.1,"carbPer100g":47.0,"confidence":0.7,"note":"约 1 个中等大小"}]}
 """
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()

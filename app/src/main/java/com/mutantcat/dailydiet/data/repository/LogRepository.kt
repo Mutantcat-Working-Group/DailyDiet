@@ -1,5 +1,6 @@
 package com.mutantcat.dailydiet.data.repository
 
+import com.mutantcat.dailydiet.data.ai.VisionFoodItem
 import com.mutantcat.dailydiet.data.local.ExerciseLogDao
 import com.mutantcat.dailydiet.data.local.ExerciseLogEntity
 import com.mutantcat.dailydiet.data.local.FoodEntity
@@ -49,18 +50,22 @@ class LogRepository(
     }
 
     suspend fun addEstimatedFood(
-        name: String,
+        item: VisionFoodItem,
         grams: Double,
         kcalPer100g: Double,
         mealType: MealType,
         loggedAt: Long,
         note: String = "",
     ) {
+        val factor = grams / 100.0
         foodLogDao.insert(
             FoodLogEntity(
-                foodName = name,
+                foodName = item.name,
                 grams = grams,
-                kcal = kcalPer100g * grams / 100.0,
+                kcal = kcalPer100g * factor,
+                proteinG = item.proteinPer100g?.times(factor) ?: 0.0,
+                fatG = item.fatPer100g?.times(factor) ?: 0.0,
+                carbG = item.carbPer100g?.times(factor) ?: 0.0,
                 mealType = mealType.name,
                 loggedAt = loggedAt,
                 source = "ai",

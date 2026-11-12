@@ -24,21 +24,22 @@ interface FoodDao {
     @Query(
         """
         SELECT * FROM foods
-        WHERE name LIKE '%' || :query || '%' OR aliases LIKE '%' || :query || '%'
+        WHERE name LIKE '%' || :query || '%' ESCAPE '\'
+           OR aliases LIKE '%' || :query || '%' ESCAPE '\'
         ORDER BY
             CASE
                 WHEN name = :query THEN 0
-                WHEN name LIKE :query || '%' THEN 1
+                WHEN name LIKE :query || '%' ESCAPE '\' THEN 1
                 ELSE 2
             END,
             name
         LIMIT :limit
         """,
     )
-    suspend fun search(query: String, limit: Int = 40): List<FoodEntity>
+    suspend fun search(query: String, limit: Int = 200): List<FoodEntity>
 
     @Query("SELECT * FROM foods ORDER BY id LIMIT :limit")
-    suspend fun first(limit: Int = 40): List<FoodEntity>
+    suspend fun first(limit: Int = 500): List<FoodEntity>
 }
 
 @Dao

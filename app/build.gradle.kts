@@ -81,8 +81,18 @@ android {
     }
 }
 
+// 导出 Room schema，让后续版本的迁移有据可依，也便于 review 表结构变更。
+val roomSchemaDir = File(projectDir, "schemas")
+
+// 给 DAO 编译器的 schema 输出目录参数（KSP）。
+ksp {
+    arg("room.schemaLocation", roomSchemaDir.absolutePath)
+    arg("room.incremental", "true")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

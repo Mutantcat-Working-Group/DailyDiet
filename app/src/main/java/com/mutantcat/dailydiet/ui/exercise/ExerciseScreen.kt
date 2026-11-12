@@ -30,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mutantcat.dailydiet.core.units.EnergyUnit
+import com.mutantcat.dailydiet.core.units.UnitFormatter
 import com.mutantcat.dailydiet.data.local.ExerciseLogEntity
 import com.mutantcat.dailydiet.domain.calculator.ExerciseCalculator
 import com.mutantcat.dailydiet.domain.calculator.ExercisePreset
@@ -41,6 +43,7 @@ import com.mutantcat.dailydiet.ui.components.SectionCard
 @Composable
 fun ExerciseScreen(
     weightKg: Double,
+    energyUnit: EnergyUnit,
     exerciseLogs: List<ExerciseLogEntity>,
     onAdd: (ExercisePreset, Int) -> Unit,
     onDelete: (ExerciseLogEntity) -> Unit,
@@ -77,7 +80,8 @@ fun ExerciseScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(log.name, fontWeight = FontWeight.Medium)
                                 Text(
-                                    text = "${log.minutes} 分钟 · ${log.kcal.toInt()} kcal · " +
+                                    text = "${log.minutes} 分钟 · " +
+                                        "${UnitFormatter.energy(log.kcal, energyUnit)} · " +
                                         "MET ${log.met}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -88,7 +92,10 @@ fun ExerciseScreen(
                             }
                         }
                     }
-                    MetricRow("今日运动消耗", "${exerciseLogs.sumOf { it.kcal }.toInt()} kcal")
+                    MetricRow(
+                        label = "今日运动消耗",
+                        value = UnitFormatter.energy(exerciseLogs.sumOf { it.kcal }, energyUnit),
+                    )
                 }
             }
 
@@ -119,7 +126,10 @@ fun ExerciseScreen(
                         )
                     }
                     Text(
-                        text = "${ExerciseCalculator.kcal(preset.met, weightKg, 30).toInt()} kcal/30min",
+                        text = UnitFormatter.energy(
+                            ExerciseCalculator.kcal(preset.met, weightKg, 30),
+                            energyUnit,
+                        ) + "/30min",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -133,6 +143,7 @@ fun ExerciseScreen(
         ExerciseDialog(
             preset = preset,
             weightKg = weightKg,
+            energyUnit = energyUnit,
             onDismiss = { selectedPreset = null },
             onConfirm = { minutes ->
                 onAdd(preset, minutes)
@@ -146,6 +157,7 @@ fun ExerciseScreen(
 private fun ExerciseDialog(
     preset: ExercisePreset,
     weightKg: Double,
+    energyUnit: EnergyUnit,
     onDismiss: () -> Unit,
     onConfirm: (minutes: Int) -> Unit,
 ) {
@@ -164,7 +176,7 @@ private fun ExerciseDialog(
                     label = "运动时长",
                     suffix = "分钟",
                 )
-                MetricRow("估算消耗", "${kcal.toInt()} kcal")
+                MetricRow("估算消耗", UnitFormatter.energy(kcal, energyUnit))
                 Text(
                     text = "按体重 ${weightKg.toInt()} kg 和 MET ${preset.met} 估算，可在记录后手动删除重记。",
                     style = MaterialTheme.typography.bodySmall,
